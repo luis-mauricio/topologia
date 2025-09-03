@@ -1,10 +1,10 @@
-%Golintou - Programa para An·lise TopolÛgica de Lineamentos com Interface
+% Golintou - Programa para An√°lise Topol√≥gica de Lineamentos com Interface
 
 format compact;
-clear;
-clc;
+% Nota: comandos de limpeza de workspace/console foram removidos
+% (como 'clear' e 'clc') para n√£o afetar o ambiente do usu√°rio.
 
-fprintf('*** Golintou - Programa para An·lise TopolÛgica de Lineamentos com Interface ***\n\n');
+fprintf('*** Golintou - Programa para An√°lise Topol√≥gica de Lineamentos com Interface ***\n\n');
 
 Golintop();
 
@@ -27,9 +27,9 @@ numFields = numel(fields);
 inputs = cell(numFields, 1);
 for i = 1:numFields
     uicontrol(panel, 'Style', 'text', 'String', fields{i}, 'HorizontalAlignment', 'left', ...
-        'Position', [10, 650-30*i, 150, 20]);
+        'Position', [10, 650-30*i, 160, 20]);
     inputs{i} = uicontrol(panel, 'Style', 'edit', 'String', mat2str(data.(fields{i})), ...
-        'Position', [80, 650-30*i, 200, 20]);
+        'Position', [180, 650-30*i, 120, 20]);
 end
 
 %botao para executar os calculos
@@ -51,9 +51,29 @@ end
                 cla(ax{m,n});
             end
         end
-        %atualizar dados com as entradas do usuario
+        %atualizar dados com as entradas do usuario (evitando eval)
         for k = 1:numFields
-            data.(fields{k}) = eval(inputs{k}.String);
+            fname = fields{k};
+            valText = strtrim(inputs{k}.String);
+            if strcmp(fname, 'arquivo')
+                % manter como texto para o caminho do arquivo;
+                % remover aspas se presentes (ex.: 'Frattopo.xyz')
+                if ~isempty(valText)
+                    if (valText(1) == '''' && valText(end) == '''') || (valText(1) == '"' && valText(end) == '"')
+                        valText = valText(2:end-1);
+                    end
+                end
+                data.(fname) = valText;
+            else
+                % tentar converter para n√∫mero (escalares)
+                numVal = str2double(valText);
+                if ~isnan(numVal)
+                    data.(fname) = numVal;
+                else
+                    % fallback: manter como texto se n√£o converter
+                    data.(fname) = valText;
+                end
+            end
         end
 
         factor = data.vizinhanca;
@@ -62,9 +82,29 @@ end
 
         %entrada dos dados
 
-        fid = fopen(arquivo);
+        % resolver caminho do arquivo, caso relativo ao script
+        if ~(exist(arquivo,'file')==2)
+            try
+                thisDir = fileparts(mfilename('fullpath'));
+            catch
+                thisDir = pwd;
+            end
+            alt = fullfile(thisDir, arquivo);
+            if exist(alt,'file')==2
+                arquivo = alt;
+            end
+        end
+        [fid, emsg] = fopen(arquivo,'r');
+        if fid == -1
+            warning('N√£o foi poss√≠vel abrir o arquivo "%s": %s', arquivo, emsg);
+            return;
+        end
         file = textscan(fid,'%f%f%f%f');
         fclose(fid);
+        if isempty(file) || any(cellfun(@isempty,file))
+            warning('Conte√∫do inesperado em "%s". Esperadas 4 colunas num√©ricas.', arquivo);
+            return;
+        end
 
         %calculos com fator de aproximacao
 
@@ -125,6 +165,9 @@ end
 
         flagni = 1;
         counter = 0;
+        % prealoca vetores (tamanho m√°ximo igual ao n¬∫ de segmentos)
+        nseg = length(xi);
+        xi2 = zeros(nseg,1); yi2 = zeros(nseg,1); xf2 = zeros(nseg,1); yf2 = zeros(nseg,1);
         for n=1:length(xi)
             if out.intAdjacencyMatrix(n,:)==0
                 counter = counter+1;
@@ -136,13 +179,15 @@ end
         end
         if counter==0
             flagni = 0;
-            fprintf('todos lineamentos tÍm pelo menos uma intersecÁ„o ou se tocam!\n\n');
+            fprintf('todos lineamentos t√™m pelo menos uma intersec√ß√£o ou se tocam!\n\n');
         end
 
         %determinacao dos lineamentos que se intersectam ou se tocam
 
         flagin = 1;
         counter = 0;
+        % prealoca vetores
+        xi3 = zeros(nseg,1); yi3 = zeros(nseg,1); xf3 = zeros(nseg,1); yf3 = zeros(nseg,1);
         for n=1:length(xi)
             if sum(out.intAdjacencyMatrix(n,:))>=1
                 counter = counter+1;
@@ -154,13 +199,15 @@ end
         end
         if counter==0
             flagin = 0;
-            fprintf('n„o h· lineamentos que se intersectam ou se tocam!\n\n');
+            fprintf('n√£o h√° lineamentos que se intersectam ou se tocam!\n\n');
         end
 
         %determinacao dos pontos de interseccao ou toque
 
-        xp = 0;
-        yp = 0;
+        % prealoca pontos de interse√ß√£o (limite superior N*(N+1)/2)
+        maxints = nseg*(nseg+1)/2;
+        xp = zeros(maxints,1);
+        yp = zeros(maxints,1);
         counter = 0;
         for n=1:length(xi)
             for m=n:length(xi)
@@ -170,6 +217,11 @@ end
                     yp(counter) = out.intMatrixY(n,m);
                 end
             end
+        end
+        % reduz ao tamanho utilizado
+        if counter > 0 && counter < maxints
+            xp = xp(1:counter);
+            yp = yp(1:counter);
         end
 
         %divisao dos segmentos provenientes das interseccoes ou toques
@@ -491,14 +543,17 @@ end
             xi7 = 0*xi7; yi7 = 0*yi7; xf7 = 0*xf7; yf7 = 0*yf7;
         end
         counter = 0;
-        for n=1:length(M)
+        for n=1:size(M,1)
             if sum(M(n,:))~=0
                 counter = counter+1;
                 M7(counter,:) = M(n,:);
             end
         end
         if flagin==1 & flagni==1
-            M2plot = [xi2' yi2' xf2' yf2'];
+            % construir matriz [xi yi xf yf] com 4 colunas
+            M2plot = [xi2 yi2 xf2 yf2];
+            % garantir M7p v√°lido mesmo quando M7 estiver vazio
+            M7p = zeros(0,4);
             counter = 0;
             for n=1:2:length(M7)
                 counter = counter+1;
@@ -507,6 +562,8 @@ end
             Mp = [M2plot; M7p];
         end
         if flagin==1 & flagni==0
+            % garantir M7p v√°lido mesmo quando M7 estiver vazio
+            M7p = zeros(0,4);
             counter = 0;
             for n=1:2:length(M7)
                 counter = counter+1;
@@ -517,23 +574,29 @@ end
         if flagin==0
             Mp = [xi yi xf yf];
         end
-        dim_Mp = size(Mp);
+        dim_Mp_rows = size(Mp,1);
         counter = 0;
-        for n=1:dim_Mp
-            if Mp(n,1)==Mp(n,3) & Mp(n,2)==Mp(n,4)
-            else
+        Mpdob = zeros(0,4);
+        for n=1:dim_Mp_rows
+            if ~(Mp(n,1)==Mp(n,3) && Mp(n,2)==Mp(n,4))
                 counter = counter+1;
                 Mpdob(counter,:) = Mp(n,:);
             end
         end
-        Mp = Mpdob;
-        dim_Mp = size(Mp);
+        if counter>0
+            Mp = Mpdob(1:counter,:);
+        else
+            Mp = zeros(0,4);
+        end
+        dim_Mp_rows = size(Mp,1);
 
         %discriminacao I e X
 
         n_typex = 0;
         if flagin==1 & n_typey~=0
-            typex = setdiff([xp' yp'],[x6y' y6y'],'rows','stable');
+            Axy = [xp(:) yp(:)];
+            Bxy = [x6y(:) y6y(:)];
+            typex = setdiff(Axy,Bxy,'rows','stable');
             x6x = typex(:,1);
             y6x = typex(:,2);
             n_typex = length(x6x);
@@ -546,7 +609,7 @@ end
         end
         n_typei = 0;
         if n_typey~=0
-            typei = setdiff([xi yi; xf yf],[x6y' y6y'],'rows','stable');
+            typei = setdiff([xi yi; xf yf],[x6y(:) y6y(:)],'rows','stable');
             x6i = typei(:,1);
             y6i = typei(:,2);
             n_typei = length(x6i);
@@ -557,7 +620,7 @@ end
                 n_typei = length(x6i);
             end
             if flagin==1
-                typei = setdiff([xi yi; xf yf],[xp' yp'],'rows','stable');
+                typei = setdiff([xi yi; xf yf],[xp(:) yp(:)],'rows','stable');
                 x6i = typei(:,1);
                 y6i = typei(:,2);
                 n_typei = length(x6i);
@@ -577,7 +640,7 @@ end
         n_typeii = 0;
         n_typeic = 0;
         n_typecc = 0;
-        for n=1:length(Mp)
+        for n=1:size(Mp,1)
             flaginti(n) = 0;
             flagintf(n) = 0;
             for m=1:length(xp)
@@ -624,7 +687,7 @@ end
         end
         if counter==0
             flagi2 = 0;
-            fprintf('n„o h· lineamentos que se intersectam ou se tocam mais de uma vez!\n\n');
+            fprintf('n√£o h√° lineamentos que se intersectam ou se tocam mais de uma vez!\n\n');
         end
 
         %calculo do tensor de permeabilidade i
@@ -668,7 +731,7 @@ end
 
         %calculo do percentual relativo ao fator de aproximacao
 
-        fprintf('percentual do fator de aproximaÁ„o:\n\n');
+        fprintf('percentual do fator de aproxima√ß√£o:\n\n');
 
         100*(factor/sqrt((max(max([xi xf]))-min(min([yi yf])))^2+(max(max([yi yf]))-min(min([yi yf])))^2))
 
@@ -746,7 +809,7 @@ end
         %axis([min(min([xi,xf])) max(max([xi,xf])) min(min([yi,yf])) max(max([yi,yf]))]);
         axis('tight');
         axis('equal');
-        title('nÛs I,Y e X');
+        title('n√≥s I,Y e X');
         axes(ax{1,2});
         hold on
         Mnosgeol = [15.805556 27.805556 93.000000 162.500000;
@@ -778,10 +841,11 @@ end
         text(0.5,0.95,'I','FontWeight','bold');
         text(-0.1,0,'Y','FontWeight','bold');
         text(1.05,0,'X','FontWeight','bold');
-        title('proporÁıes I,Y e X');
+        title('propor√ß√µes I,Y e X');
         axes(ax{2,1});
         hold on
-        for n=1:dim_Mp(1,1)
+        % usar contagem de linhas segura de Mp
+        for n=1:size(Mp,1)
             if (flaginti(n)==0 & flagintf(n)==0)
                 plot([Mp(n,1),Mp(n,3)],[Mp(n,2),Mp(n,4)],'g');
             end
@@ -849,7 +913,7 @@ end
         text(0.45,0.95,'I-I','FontWeight','bold');
         text(-0.18,0,'I-C','FontWeight','bold');
         text(1.05,0,'C-C','FontWeight','bold');
-        title('proporÁıes I-I,I-C e C-C');
+        title('propor√ß√µes I-I,I-C e C-C');
         if flagi2==1
             axes(ax{3,1});
             hold on
@@ -862,7 +926,7 @@ end
             axis('tight');
             axis('equal');
             text(1,0.5*max([kvec(1,2)*kvalnorm(1,1) -kvec(1,2)*kvalnorm(1,1) kvec(2,2)*kvalnorm(2,2) -kvec(2,2)*kvalnorm(2,2)]),num2str(max(max(kvalnorm))));
-            title('raz„o de permeabilidade i');
+            title('raz√£o de permeabilidade i');
         end
         axes(ax{3,2});
         hold on
@@ -876,7 +940,7 @@ end
         axis('equal');
         text(1,0.5*max([k2vec(1,2)*k2valnorm(1,1) -k2vec(1,2)*k2valnorm(1,1) k2vec(2,2)*k2valnorm(2,2) -k2vec(2,2)*k2valnorm(2,2)]),num2str(max(max(k2valnorm))));
         text(1,0.4*max([k2vec(1,2)*k2valnorm(1,1) -k2vec(1,2)*k2valnorm(1,1) k2vec(2,2)*k2valnorm(2,2) -k2vec(2,2)*k2valnorm(2,2)]),num2str(f));
-        title('raz„o de permeabilidade ii');
+        title('raz√£o de permeabilidade ii');
         axes(ax{4,1});
         hold on;
         resolucao = 100;
@@ -913,6 +977,6 @@ end
 
 fprintf('veja o diagrama para visualizar os resultados\n\n');
 
-fprintf('concluÌdo\n\n');
+fprintf('conclu√≠do\n\n');
 
 end
